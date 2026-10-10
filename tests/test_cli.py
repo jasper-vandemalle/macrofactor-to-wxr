@@ -60,6 +60,15 @@ def test_dry_run_saves_nothing(export, tmp_path, capsys):
     assert "Dry run" in capsys.readouterr().out
 
 
+def test_dry_run_mentions_an_existing_log(export, tmp_path, capsys):
+    api = FakeApi(has_log=True)
+
+    assert push(push_args(export, dry_run=True), Config(), api, aliases_path=tmp_path / "none.toml") == 0
+
+    assert "needs --replace" in capsys.readouterr().out
+    assert api.saved is None
+
+
 def test_refuses_to_overwrite_an_existing_log(export, tmp_path):
     api = FakeApi(has_log=True)
 

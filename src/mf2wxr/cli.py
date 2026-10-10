@@ -77,14 +77,17 @@ def push(args, config: Config, api: WxrApi, aliases_path: Path | None = None) ->
     if new:
         print("New on weightxreps: " + ", ".join(new))
 
-    if day.has_log and not args.replace:
+    clash = day.has_log and not args.replace
+    if args.dry_run:
+        if clash:
+            print(f"{workout.date.isoformat()} already has a log on weightxreps; pushing it needs --replace.")
+        print("Dry run, nothing saved.")
+        return 0
+    if clash:
         raise UsageError(
             f"{workout.date.isoformat()} already has a log on weightxreps. Saving replaces the whole day; "
             "pass --replace if that's what you want"
         )
-    if args.dry_run:
-        print("Dry run, nothing saved.")
-        return 0
 
     api.save(rows, workout.date)
     total_sets = sum(len(e.sets) for e in workout.exercises)
