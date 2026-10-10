@@ -90,6 +90,7 @@ def free_port() -> int:
 def test_login_exchanges_the_redirected_code_for_tokens(monkeypatch):
     port = free_port()
     monkeypatch.setattr(auth, "REDIRECT_PORT", port)
+    monkeypatch.setattr(auth, "NAVIGATION_GRACE_S", 0)
     requests = []
     http = token_endpoint(requests, {"access_token": "a", "refresh_token": "r", "expires_in": 60})
 
@@ -105,3 +106,43 @@ def test_login_exchanges_the_redirected_code_for_tokens(monkeypatch):
     assert requests[0]["code"] == ["the-code"]
     assert requests[0]["grant_type"] == ["authorization_code"]
     assert len(requests[0]["code_verifier"][0]) <= 64
+
+
+def test_callback_answers_the_consent_pages_cross_origin_fetch(monkeypatch):
+    # the weightxreps consent page fetch()es its way to the callback before navigating there
+    port = free_port()
+    monkeypatch.setattr(auth, "REDIRECT_PORT", port)
+    monkeypatch.setattr(auth, "NAVIGATION_GRACE_S", 0)
+    origin = {"Origin": "https://weightxreps.net"}
+    callback = f"http://127.0.0.1:{port}/callback?code=c&state=s"
+
+    with auth._CallbackServer() as server:
+        preflight = httpx.options(
+            callback,
+            headers={
+                **origin,
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "authorization",
+                "Access-Control-Request-Private-Network": "true",
+            },
+        )
+        fetched = httpx.get(callback, headers=origin)
+        code = server.wait_for_code("s")
+
+    assert preflight.status_code == 204
+    assert preflight.headers["Access-Control-Allow-Origin"] == "https://weightxreps.net"
+    assert preflight.headers["Access-Control-Allow-Headers"] == "authorization"
+    assert preflight.headers["Access-Control-Allow-Private-Network"] == "true"
+    assert fetched.headers["Access-Control-Allow-Origin"] == "https://weightxreps.net"
+    assert code == "c"
+
+
+def test_callback_doesnt_grant_cors_to_other_sites(monkeypatch):
+    port = free_port()
+    monkeypatch.setattr(auth, "REDIRECT_PORT", port)
+    monkeypatch.setattr(auth, "NAVIGATION_GRACE_S", 0)
+
+    with auth._CallbackServer():
+        response = httpx.get(f"http://127.0.0.1:{port}/callback", headers={"Origin": "https://evil.example"})
+
+    assert "Access-Control-Allow-Origin" not in response.headers

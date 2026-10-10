@@ -6,11 +6,14 @@ See https://github.com/bandinopla/weightxreps-server/blob/main/docs/OAUTH.md
 import base64
 import hashlib
 import json
+import os
 import secrets
+import sys
+import threading
 import time
 import webbrowser
 from dataclasses import asdict, dataclass
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -22,6 +25,8 @@ REDIRECT_HOST, REDIRECT_PORT = "127.0.0.1", 8765
 REDIRECT_URI = f"http://{REDIRECT_HOST}:{REDIRECT_PORT}/callback"
 SCOPE = "jwrite"
 LOGIN_TIMEOUT_S = 300
+NAVIGATION_GRACE_S = 5
+ALLOWED_ORIGINS = {"https://weightxreps.net", "https://www.weightxreps.net"}
 # refresh a bit before the access token actually expires
 EXPIRY_MARGIN_S = 60
 
@@ -153,41 +158,72 @@ def _json(response: httpx.Response) -> dict:
 
 
 class _CallbackServer:
-    """Catches the redirect back from weightxreps on the loopback address."""
+    """Catches the redirect back from weightxreps on the loopback address.
+
+    The weightxreps consent page doesn't simply redirect the browser here: it first `fetch`es the authorize
+    endpoint, follows the redirect to this callback cross-origin and reads the code from the final URL, and only
+    then navigates here. So the callback has to answer CORS (and private network access) preflights, and stay up
+    for that second, navigating request.
+    """
 
     def __enter__(self):
         result = self.result = {}
+        received = self.received = threading.Event()
+        navigated = self.navigated = threading.Event()
 
         class Handler(BaseHTTPRequestHandler):
+            def do_OPTIONS(self):
+                self.send_response(204)
+                self._cors()
+                self.send_header("Access-Control-Allow-Methods", "GET")
+                requested = self.headers.get("Access-Control-Request-Headers")
+                if requested:
+                    self.send_header("Access-Control-Allow-Headers", requested)
+                self.send_header("Access-Control-Allow-Private-Network", "true")
+                self.end_headers()
+
             def do_GET(self):
                 url = urlparse(self.path)
                 if url.path != "/callback":
                     self.send_error(404)
                     return
-                result.update({k: v[0] for k, v in parse_qs(url.query).items()})
+
+                query = {k: v[0] for k, v in parse_qs(url.query).items()}
+                if not received.is_set() and ("code" in query or "error" in query):
+                    result.update(query)
+                    received.set()
+                if self.headers.get("Sec-Fetch-Mode") == "navigate":
+                    navigated.set()
+
                 ok = "code" in result
                 self.send_response(200 if ok else 400)
+                self._cors()
                 self.send_header("Content-Type", "text/plain; charset=utf-8")
                 self.end_headers()
-                message = "Signed in, you can close this tab." if ok else "Sign-in failed, check the terminal."
+                message = "Signed in to mf2wxr, you can close this tab." if ok else "Sign-in failed, see the terminal."
                 self.wfile.write(message.encode())
 
-            def log_message(self, *args):
-                pass
+            def _cors(self):
+                origin = self.headers.get("Origin")
+                if origin in ALLOWED_ORIGINS:
+                    self.send_header("Access-Control-Allow-Origin", origin)
+                    self.send_header("Vary", "Origin")
+
+            def log_message(self, format, *args):
+                if os.environ.get("MF2WXR_DEBUG"):
+                    super().log_message(format, *args)
+                    print(f"  headers: {dict(self.headers)}", file=sys.stderr)
 
         try:
-            self.server = HTTPServer((REDIRECT_HOST, REDIRECT_PORT), Handler)
+            self.server = ThreadingHTTPServer((REDIRECT_HOST, REDIRECT_PORT), Handler)
         except OSError as e:
             raise AuthError(f"Can't listen on {REDIRECT_URI} for the sign-in redirect: {e}") from e
-        self.server.timeout = 1
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
         return self
 
     def wait_for_code(self, state: str) -> str:
-        deadline = time.time() + LOGIN_TIMEOUT_S
-        while not self.result and time.time() < deadline:
-            self.server.handle_request()
-
-        if not self.result:
+        if not self.received.wait(LOGIN_TIMEOUT_S):
             raise AuthError("Timed out waiting for the weightxreps sign-in")
         if "error" in self.result:
             raise AuthError(f"weightxreps denied access: {self.result['error']}")
@@ -196,4 +232,8 @@ class _CallbackServer:
         return self.result["code"]
 
     def __exit__(self, *exc):
+        # give the browser a moment to land on the callback page instead of a connection error
+        if self.received.is_set():
+            self.navigated.wait(NAVIGATION_GRACE_S)
+        self.server.shutdown()
         self.server.server_close()
