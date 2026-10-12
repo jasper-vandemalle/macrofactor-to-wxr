@@ -23,6 +23,11 @@ mutation SaveJEditor($rows: [JEditorSaveRow], $defaultDate: YMD!) {
 """
 
 
+# The editor answers every day, even an empty one, with a day tag and a bodyweight tag
+# prefilled with your last known bodyweight. Only rows beyond these are an actual log.
+SCAFFOLD = {"JEditorDayTag", "JEditorBWTag"}
+
+
 class ApiError(RuntimeError):
     pass
 
@@ -45,7 +50,7 @@ class WxrApi:
         data = self._call(JOURNAL_DAY, {"ymd": day.isoformat()})["jeditor"]
         return JournalDay(
             exercises={int(e["e"]["id"]): e["e"]["name"] for e in data["exercises"]},
-            has_log=any(row["__typename"] == "JEditorDayTag" for row in data["did"]),
+            has_log=any(row["__typename"] not in SCAFFOLD for row in data["did"]),
         )
 
     def save(self, rows: list[dict], day: date) -> None:

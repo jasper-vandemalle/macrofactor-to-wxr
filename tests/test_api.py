@@ -35,7 +35,8 @@ def test_journal_day_lists_exercises_and_whether_the_day_has_a_log():
 
 
 def test_an_empty_day_has_no_log():
-    api = api_answering({"data": {"jeditor": {"exercises": [], "did": []}}})
+    scaffold = [{"__typename": "JEditorDayTag"}, {"__typename": "JEditorBWTag"}]
+    api = api_answering({"data": {"jeditor": {"exercises": [], "did": scaffold}}})
 
     assert not api.journal_day(date(2025, 3, 1)).has_log
 
