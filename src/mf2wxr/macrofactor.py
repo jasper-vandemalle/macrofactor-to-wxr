@@ -25,6 +25,9 @@ WORKOUT_COLUMNS = {
 }
 REQUIRED_COLUMNS = ("date", "exercise", "weight", "reps")
 
+# dumbbell and fly exercises that load one implement, so there's no combined weight to halve
+SINGLE_IMPLEMENT_KEYWORDS = ("single arm", "single leg", "offset", "suitcase", "pullover", "machine")
+
 
 class ExportError(ValueError):
     """The file isn't a MacroFactor export we can read."""
@@ -172,12 +175,11 @@ def _distance_m(short_m, long_km) -> float | None:
 def _adjust_bilateral(exercise: Exercise) -> Exercise:
     """MacroFactor records the combined load of two dumbbells (and both sides of a cable fly).
 
-    Single-limb and offset exercises are already recorded per side.
+    Exercises using one implement are already recorded as that implement's load.
     """
     name = exercise.name.lower()
-    single_limb = "single arm" in name or "single leg" in name
-    offset = "offset" in name
-    if ("dumbbell" in name or "fly" in name) and not single_limb and not offset:
+    single_implement = any(keyword in name for keyword in SINGLE_IMPLEMENT_KEYWORDS)
+    if ("dumbbell" in name or "fly" in name) and not single_implement:
         for s in exercise.sets:
             s.weight_kg /= 2
     return exercise

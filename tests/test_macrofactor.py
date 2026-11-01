@@ -89,6 +89,9 @@ def test_consolidates_superset_rows_per_exercise(make_export):
         ("Cable Fly", 40, 20),
         ("Single Arm Row (Dumbbell)", 30, 30),
         ("Split Squat (Offset Dumbbell)", 20, 20),
+        ("Dumbbell Suitcase Carry", 30, 30),
+        ("Dumbbell Pullover", 34, 34),
+        ("Neutral Grip Machine Rear Delt Fly", 50, 50),
         ("Bench Press (Barbell)", 80, 80),
     ],
 )

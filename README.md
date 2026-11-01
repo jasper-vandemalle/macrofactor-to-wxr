@@ -35,7 +35,7 @@ Logged Lower A on 2025-03-01: 4 exercises, 11 sets.
 
 - Warm-up sets are skipped.
 - Supersets are merged back into one block per exercise.
-- MacroFactor logs the combined load of two dumbbells (and both sides of a cable fly). Those are halved to the per-dumbbell weight; single-arm and offset exercises are left alone.
+- MacroFactor logs the combined load of two dumbbells (and both sides of a cable fly). Those are halved to the per-dumbbell weight. Exercises that use one implement are left alone: single-arm, single-leg, offset, suitcase carries, pullovers and machines.
 - For pull-ups, chin-ups and dips, the weight is logged as added to your bodyweight (`BW+10`).
 - RIR becomes RPE (2 RIR is RPE 8).
 - Carries are logged as weight over distance.
